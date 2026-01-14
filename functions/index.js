@@ -14,7 +14,15 @@ const TRACKING_CONFIG = {
     batchUpdateInterval: 5,         // Intervalle de batch en secondes
     minSoldeRequis: 1000            // Solde minimum strict pour recevoir une course
 };
-
+// ==========================================
+// CONFIGURATION PAIEMENTS
+// ==========================================
+const PAYMENT_CONFIG = {
+    driverRate: 0.70,              // 70% pour le chauffeur
+    platformRate: 0.30,            // 30% pour la plateforme
+    minCourseAmount: 500,          // Montant minimum d'une course (FCFA)
+    maxCourseAmount: 50000         // Montant maximum d'une course (FCFA)
+};
 async function getSystemParams() {
   try {
     const doc = await db.collection('parametres').doc('config').get();

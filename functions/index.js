@@ -7,6 +7,9 @@ const { onSchedule } = require('firebase-functions/v2/scheduler');
 admin.initializeApp();
 const db = admin.firestore();
 
+// ✅ CONFIGURATION RÉGION
+const REGION = 'us-central1';
+
 // ==========================================
 // CONFIGURATION SYSTÈME
 // ==========================================
@@ -60,7 +63,12 @@ function parseMoney(value) {
 // SECTION 1: ASSIGNATION AUTOMATIQUE
 // ==========================================
 
-exports.assignerChauffeurAutomatique = onDocumentCreated('reservations/{reservationId}', async (event) => {
+exports.assignerChauffeurAutomatique = onDocumentCreated(
+    {
+        document: 'reservations/{reservationId}',
+        region: REGION
+    },
+    async (event) => {
     const snap = event.data;
     const reservation = snap.data();
     const reservationId = event.params.reservationId;
@@ -285,7 +293,7 @@ exports.assignerChauffeurAutomatique = onDocumentCreated('reservations/{reservat
     }
 });
 
-exports.assignerChauffeurManuel = onCall(async (request) => {
+exports.assignerChauffeurManuel = onCall({ region: REGION }, async (request) => {
   const { reservationId, chauffeurId, adminToken } = request.data;
   
   if (!request.auth && !adminToken) {
@@ -431,47 +439,6 @@ exports.assignerChauffeurManuel = onCall(async (request) => {
   }
 });
 
-// TEMPORAIREMENT DÉSACTIVÉ POUR PREMIER DÉPLOIEMENT
-/*
-exports.verifierAssignationTimeout = onSchedule('every 5 minutes', async (event) => {
-    // console.log('🔍 Vérification timeouts...');
-    // const params = await getSystemParams();
-   // const maintenant = Date.now();
-   // const timeout = params.delaiReassignation * 60 * 1000;
-    
-   // try {
-     // const snapshot = await db.collection('reservations')
-       // .where('statut', '==', 'assignee')
-       // .get();
-      
-     // const promesses = [];
-      
-     // snapshot.forEach(doc => {
-       // const reservation = doc.data();
-        
-       // if (reservation.dateAssignation) {
-         // const tempsEcoule = maintenant - reservation.dateAssignation.toMillis();
-          
-         // if (tempsEcoule > timeout) {
-           // console.log(`⚠️ Timeout: ${doc.id}`);
-           // promesses.push(reassignerChauffeur(doc.id, reservation));
-          }
-        }
-      });
-      
-     // await Promise.all(promesses);
-      
-     // if (promesses.length > 0) {
-       // console.log(`✅ ${promesses.length} réassignations`);
-      }
-      
-  // } catch (error) {
-    //  console.error('❌ Erreur timeout:', error);
-    }
-   // return null;
-});
-*/
-
 async function reassignerChauffeur(reservationId, reservation) {
   try {
     if (reservation.chauffeurAssigne) {
@@ -505,7 +472,7 @@ async function reassignerChauffeur(reservationId, reservation) {
   }
 }
 
-exports.terminerCourse = onCall(async (request) => {
+exports.terminerCourse = onCall({ region: REGION }, async (request) => {
   const { reservationId, chauffeurId, adminToken } = request.data;
   
   if (!request.auth && !adminToken) {
@@ -530,7 +497,7 @@ exports.terminerCourse = onCall(async (request) => {
   }
 });
 
-exports.annulerReservation = onCall(async (request) => {
+exports.annulerReservation = onCall({ region: REGION }, async (request) => {
   const { reservationId, raison, adminToken } = request.data;
   
   if (!request.auth && !adminToken) {
@@ -560,59 +527,16 @@ exports.annulerReservation = onCall(async (request) => {
   }
 });
 
-// TEMPORAIREMENT DÉSACTIVÉ POUR PREMIER DÉPLOIEMENT  
-/*
-exports.verifierCoherenceChauffeurs = onSchedule('every 1 hours', async (event) => {
-   // console.log('🔍 Vérification cohérence...');
-    
-   // try {
-     // const snapshot = await db.collection('drivers').get();
-     // const corrections = [];
-      
-     // snapshot.forEach(doc => {
-       // const data = doc.data();
-        
-       // if (data.currentBookingId !== data.reservationEnCours) {
-         // let valeurCorrecte = null;
-          
-         // if (data.currentBookingId && !data.reservationEnCours) {
-           // valeurCorrecte = data.currentBookingId;
-         // } else if (data.reservationEnCours && !data.currentBookingId) {
-           // valeurCorrecte = data.reservationEnCours;
-         // } else if (data.currentBookingId && data.reservationEnCours) {
-           // valeurCorrecte = data.currentBookingId;
-         // } else {
-           // return;
-          }
-          
-         // console.log(`🔧 Correction: ${doc.id}`);
-          
-         // corrections.push(
-           // db.collection('drivers').doc(doc.id).update({
-             // currentBookingId: valeurCorrecte,
-             // reservationEnCours: valeurCorrecte
-            })
-          );
-        }
-      });
-      
-     // if (corrections.length > 0) {
-       // await Promise.all(corrections);
-       // console.log(`✅ ${corrections.length} corrections`);
-      }
-      
-   // } catch (error) {
-     // console.error('❌ Erreur cohérence:', error);
-    }
-   // return null;
-});
-*/
-
 // ==========================================
 // SECTION 2: CRÉDITS AUTOMATIQUES
 // ==========================================
 
-exports.crediterChauffeurAutomatique = onDocumentUpdated('reservations/{reservationId}', async (event) => {
+exports.crediterChauffeurAutomatique = onDocumentUpdated(
+    {
+        document: 'reservations/{reservationId}',
+        region: REGION
+    },
+    async (event) => {
         const before = event.data.before.data();
         const after = event.data.after.data();
         const reservationId = event.params.reservationId;
@@ -768,7 +692,7 @@ exports.crediterChauffeurAutomatique = onDocumentUpdated('reservations/{reservat
         }
 });
 
-exports.recupererCreditsManques = onCall(async (request) => {
+exports.recupererCreditsManques = onCall({ region: REGION }, async (request) => {
     const { adminToken } = request.data;
     
     if (!request.auth && !adminToken) {

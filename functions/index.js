@@ -1,7 +1,13 @@
 const functions = require('firebase-functions');
 const admin = require('firebase-admin');
 admin.initializeApp();
-const db = admin.firestore();
+
+// ✅ CORRECT
+exports.myFunction = functions.firestore
+  .document('path/{id}')
+  .onCreate((snap, context) => {
+    // ...
+  });
 
 // ==========================================
 // CONFIGURATION SYSTÈME

@@ -1,0 +1,22 @@
+{
+  "projects": {
+    "default": "albourakh-sn-ok"
+  }
+}
+```
+4. Commit : `feat: Add Firebase project configuration`
+
+---
+
+## 📊 **STRUCTURE ATTENDUE SUR GITHUB**
+```
+albourakh-functions/
+├── .github/
+│   └── workflows/
+│       └── deploy.yml
+├── functions/
+│   ├── index.js
+│   └── package.json
+├── .firebaserc          ← ✅ À LA RACINE
+├── firebase.json        ← ✅ À LA RACINE
+└── .gitignore

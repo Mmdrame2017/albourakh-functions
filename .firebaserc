@@ -4,19 +4,60 @@
   }
 }
 ```
-4. Commit : `feat: Add Firebase project configuration`
 
 ---
 
-## 📊 **STRUCTURE ATTENDUE SUR GITHUB**
+## 📍 **OÙ LE PLACER SUR GITHUB**
+
+**Emplacement :** `albourakh-functions/.firebaserc` (à la racine du projet)
+
+---
+
+## 🎯 **COMMENT L'AJOUTER**
+
+### **Méthode 1 : Si le fichier n'existe PAS**
+
+1. Sur votre repo GitHub `albourakh-functions`
+2. Cliquez sur **"Add file"** → **"Create new file"**
+3. Dans le champ du nom de fichier, tapez : `.firebaserc`
+4. Collez le contenu ci-dessus
+5. Commit message : `feat: Add Firebase project configuration`
+6. Cliquez sur **"Commit new file"**
+
+---
+
+### **Méthode 2 : Si le fichier existe DÉJÀ**
+
+1. Cliquez sur `.firebaserc`
+2. Cliquez sur l'icône **crayon** ✏️ (Edit)
+3. Vérifiez/remplacez le contenu
+4. Commit message : `fix: Update Firebase project config`
+5. Cliquez sur **"Commit changes"**
+
+---
+
+## ⚠️ **ATTENTION AU NOM DU FICHIER**
+
+Le nom du fichier doit être **exactement** :
+```
+.firebaserc
+```
+
+**Pas** : `firebaserc` ou `firebaserc.json` ou `.firebase.rc`
+
+Le **point** au début est **obligatoire** !
+
+---
+
+## ✅ **STRUCTURE FINALE ATTENDUE**
 ```
 albourakh-functions/
+├── .firebaserc          ← ⭐ CE FICHIER
 ├── .github/
 │   └── workflows/
 │       └── deploy.yml
 ├── functions/
 │   ├── index.js
 │   └── package.json
-├── .firebaserc          ← ✅ À LA RACINE
-├── firebase.json        ← ✅ À LA RACINE
+├── firebase.json
 └── .gitignore

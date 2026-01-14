@@ -1,34 +1,32 @@
 const functions = require('firebase-functions');
 const admin = require('firebase-admin');
-admin.initializeApp();
 
-// ✅ CORRECT
-exports.myFunction = functions.firestore
-  .document('path/{id}')
-  .onCreate((snap, context) => {
-    // ...
-  });
+// ✅ INITIALISATION
+admin.initializeApp();
+const db = admin.firestore();  // ⭐ AJOUT CRITIQUE
 
 // ==========================================
 // CONFIGURATION SYSTÈME
 // ==========================================
 const TRACKING_CONFIG = {
-    maxInactivityMinutes: 10,      // Temps max sans mise à jour GPS
-    geofenceRadius: 100,            // Rayon de géofence en mètres
-    speedThreshold: 120,            // Vitesse max acceptée (km/h)
-    accuracyThreshold: 50,          // Précision GPS max acceptée (m)
-    batchUpdateInterval: 5,         // Intervalle de batch en secondes
-    minSoldeRequis: 1000            // Solde minimum strict pour recevoir une course
+    maxInactivityMinutes: 10,
+    geofenceRadius: 100,
+    speedThreshold: 120,
+    accuracyThreshold: 50,
+    batchUpdateInterval: 5,
+    minSoldeRequis: 1000
 };
+
 // ==========================================
 // CONFIGURATION PAIEMENTS
 // ==========================================
 const PAYMENT_CONFIG = {
-    driverRate: 0.70,              // 70% pour le chauffeur
-    platformRate: 0.30,            // 30% pour la plateforme
-    minCourseAmount: 500,          // Montant minimum d'une course (FCFA)
-    maxCourseAmount: 50000         // Montant maximum d'une course (FCFA)
+    driverRate: 0.70,
+    platformRate: 0.30,
+    minCourseAmount: 500,
+    maxCourseAmount: 50000
 };
+
 async function getSystemParams() {
   try {
     const doc = await db.collection('parametres').doc('config').get();
@@ -52,10 +50,8 @@ async function getSystemParams() {
   }
 }
 
-// Fonction utilitaire pour nettoyer et parser les montants financiers
 function parseMoney(value) {
     if (value === undefined || value === null) return 0;
-    // Convertir en chaîne, supprimer tout ce qui n'est pas chiffre, point ou signe moins (ex: "1 500 FCFA" -> "1500")
     const cleanStr = String(value).replace(/[^0-9.-]+/g, ""); 
     const num = parseFloat(cleanStr);
     return isNaN(num) ? 0 : num;
@@ -65,26 +61,23 @@ function parseMoney(value) {
 // SECTION 1: ASSIGNATION AUTOMATIQUE
 // ==========================================
 
-/**
- * Assigne automatiquement un chauffeur à une nouvelle réservation
- */
 exports.assignerChauffeurAutomatique = functions.firestore
   .document('reservations/{reservationId}')
   .onCreate(async (snap, context) => {
     const reservation = snap.data();
     const reservationId = context.params.reservationId;
     
-    console.log(` 🚕  [${new Date().toISOString()}] Nouvelle réservation: ${reservationId}`);
+    console.log(`🚕 [${new Date().toISOString()}] Nouvelle réservation: ${reservationId}`);
     
     if (reservation.statut !== 'en_attente') {
-      console.log(' ⚠️  Réservation déjà traitée');
+      console.log('⚠️ Réservation déjà traitée');
       return null;
     }
 
     const params = await getSystemParams();
     
     if (!params.assignationAutomatique) {
-      console.log(' 🔴  MODE MANUEL activé');
+      console.log('🔴 MODE MANUEL activé');
       
       await db.collection('notifications_admin').add({
         type: 'nouvelle_reservation_manuelle',
@@ -100,7 +93,7 @@ exports.assignerChauffeurAutomatique = functions.firestore
       return null;
     }
 
-    console.log(' 🟢  MODE AUTO activé');
+    console.log('🟢 MODE AUTO activé');
     
     try {
       const chauffeursSnapshot = await db.collection('drivers')
@@ -108,7 +101,7 @@ exports.assignerChauffeurAutomatique = functions.firestore
         .get();
       
       if (chauffeursSnapshot.empty) {
-        console.log(' ❌  Aucun chauffeur disponible');
+        console.log('❌ Aucun chauffeur disponible');
         
         await db.collection('notifications_admin').add({
           type: 'aucun_chauffeur',
@@ -128,7 +121,7 @@ exports.assignerChauffeurAutomatique = functions.firestore
       if (reservation.departCoords && reservation.departCoords.lat && reservation.departCoords.lng) {
         departCoords = reservation.departCoords;
       } else {
-        console.log(` ⚠️  Coordonnées manquantes pour: ${reservation.depart}`);
+        console.log(`⚠️ Coordonnées manquantes pour: ${reservation.depart}`);
         departCoords = getDefaultCoordsForAddress(reservation.depart);
         coordonneesApproximatives = true;
         
@@ -143,20 +136,16 @@ exports.assignerChauffeurAutomatique = functions.firestore
       chauffeursSnapshot.forEach(doc => {
         const chauffeur = doc.data();
         
-        // Vérification GPS
         if (!chauffeur.position || !chauffeur.position.latitude) {
-          console.log(` ⚠️  ${doc.id}: pas de GPS`);
+          console.log(`⚠️ ${doc.id}: pas de GPS`);
           return;
         }
         
-        // Vérification Disponibilité
         if (chauffeur.reservationEnCours || chauffeur.currentBookingId) {
-          console.log(` ⚠️  ${doc.id}: déjà en course`);
+          console.log(`⚠️ ${doc.id}: déjà en course`);
           return;
         }
 
-        // --- SÉCURITÉ RENFORCÉE (CORRECTION PARSING) ---
-        // On récupère la valeur peu importe si c'est 'soldeDisponible' ou 'SoldeDisponible'
         let rawSolde = undefined;
         if (chauffeur.SoldeDisponible !== undefined) {
             rawSolde = chauffeur.SoldeDisponible;
@@ -164,18 +153,14 @@ exports.assignerChauffeurAutomatique = functions.firestore
             rawSolde = chauffeur.soldeDisponible;
         }
         
-        // Utilisation de la fonction de nettoyage robuste
         const soldeActuel = parseMoney(rawSolde);
 
-        // Log de débogage précis
-        console.log(` 🔍  Check Solde ${doc.id} (${chauffeur.prenom}): Brut="${rawSolde}" -> Nettoyé=${soldeActuel}`);
+        console.log(`🔍 Check Solde ${doc.id} (${chauffeur.prenom}): Brut="${rawSolde}" -> Nettoyé=${soldeActuel}`);
 
-        // Comparaison stricte
         if (soldeActuel < TRACKING_CONFIG.minSoldeRequis) {
-            console.log(` ⛔  ${doc.id}: IGNORÉ - Solde insuffisant (${soldeActuel} < ${TRACKING_CONFIG.minSoldeRequis})`);
-            return; // Arrêt immédiat pour ce chauffeur, on passe au suivant
+            console.log(`⛔ ${doc.id}: IGNORÉ - Solde insuffisant (${soldeActuel} < ${TRACKING_CONFIG.minSoldeRequis})`);
+            return;
         }
-        // -----------------------------------------------------------------------
         
         const distance = calculerDistance(
           departCoords.lat,
@@ -184,7 +169,7 @@ exports.assignerChauffeurAutomatique = functions.firestore
           chauffeur.position.longitude
         );
         
-        console.log(` 📍  ${chauffeur.prenom} ${chauffeur.nom}: ${distance.toFixed(2)} km (Solde OK: ${soldeActuel})`);
+        console.log(`📍 ${chauffeur.prenom} ${chauffeur.nom}: ${distance.toFixed(2)} km (Solde OK: ${soldeActuel})`);
         
         if (distance <= params.rayonRecherche) {
           chauffeurs.push({
@@ -196,7 +181,7 @@ exports.assignerChauffeurAutomatique = functions.firestore
       });
       
       if (chauffeurs.length === 0) {
-        console.log(` ❌  Aucun chauffeur éligible (Solde > 1000F & Zone ${params.rayonRecherche}km)`);
+        console.log(`❌ Aucun chauffeur éligible (Solde > 1000F & Zone ${params.rayonRecherche}km)`);
         
         await db.collection('notifications_admin').add({
           type: 'aucun_chauffeur_proximite',
@@ -212,7 +197,7 @@ exports.assignerChauffeurAutomatique = functions.firestore
       chauffeurs.sort((a, b) => a.distance - b.distance);
       const chauffeurChoisi = chauffeurs[0];
       
-      console.log(` ✅  Sélectionné : ${chauffeurChoisi.prenom} ${chauffeurChoisi.nom} (${chauffeurChoisi.distance.toFixed(2)} km)`);
+      console.log(`✅ Sélectionné : ${chauffeurChoisi.prenom} ${chauffeurChoisi.nom} (${chauffeurChoisi.distance.toFixed(2)} km)`);
       
       await db.runTransaction(async (transaction) => {
         const chauffeurRef = db.collection('drivers').doc(chauffeurChoisi.id);
@@ -228,8 +213,6 @@ exports.assignerChauffeurAutomatique = functions.firestore
           throw new Error('Chauffeur plus disponible');
         }
 
-        // DOUBLE VÉRIFICATION DE SÉCURITÉ DANS LA TRANSACTION
-        // Gestion double casse ici aussi
         let rawSoldeTrans = undefined;
         if (chauffeurData.SoldeDisponible !== undefined) {
              rawSoldeTrans = chauffeurData.SoldeDisponible;
@@ -262,7 +245,7 @@ exports.assignerChauffeurAutomatique = functions.firestore
         });
       });
       
-      console.log(' ✅  TRANSACTION RÉUSSIE');
+      console.log('✅ TRANSACTION RÉUSSIE');
       
       await db.collection('notifications').add({
         destinataire: chauffeurChoisi.telephone,
@@ -281,16 +264,16 @@ exports.assignerChauffeurAutomatique = functions.firestore
       await db.collection('notifications_admin').add({
         type: 'assignation_reussie',
         reservationId: reservationId,
-        message: ` ✅  ${chauffeurChoisi.prenom} ${chauffeurChoisi.nom} assigné (${chauffeurChoisi.distance.toFixed(1)} km)${coordonneesApproximatives ? ' - Coords approx.' : ''}`,
+        message: `✅ ${chauffeurChoisi.prenom} ${chauffeurChoisi.nom} assigné (${chauffeurChoisi.distance.toFixed(1)} km)${coordonneesApproximatives ? ' - Coords approx.' : ''}`,
         timestamp: admin.firestore.FieldValue.serverTimestamp(),
         lu: false
       });
       
-      console.log(' ✅  Assignation automatique réussie!');
+      console.log('✅ Assignation automatique réussie!');
       return null;
       
     } catch (error) {
-      console.error(' ❌  Erreur assignation:', error);
+      console.error('❌ Erreur assignation:', error);
       
       await db.collection('erreurs_systeme').add({
         type: 'erreur_assignation_auto',
@@ -304,9 +287,6 @@ exports.assignerChauffeurAutomatique = functions.firestore
     }
   });
 
-/**
- * Assignation manuelle par l'admin
- */
 exports.assignerChauffeurManuel = functions.https.onCall(async (data, context) => {
   if (!context.auth && !data.adminToken) {
     throw new functions.https.HttpsError('unauthenticated', 'Non authentifié');
@@ -328,7 +308,7 @@ exports.assignerChauffeurManuel = functions.https.onCall(async (data, context) =
     const reservation = reservationDoc.data();
     
     if (reservation.chauffeurAssigne && reservation.chauffeurAssigne !== chauffeurId) {
-      console.log(' 🔄  Libération ancien chauffeur');
+      console.log('🔄 Libération ancien chauffeur');
       
       try {
         await db.collection('drivers').doc(reservation.chauffeurAssigne).update({
@@ -337,7 +317,7 @@ exports.assignerChauffeurManuel = functions.https.onCall(async (data, context) =
           reservationEnCours: null
         });
       } catch (err) {
-        console.warn(' ⚠️  Impossible de libérer:', err.message);
+        console.warn('⚠️ Impossible de libérer:', err.message);
       }
     }
     
@@ -356,8 +336,6 @@ exports.assignerChauffeurManuel = functions.https.onCall(async (data, context) =
       );
     }
 
-    // --- SÉCURITÉ RENFORCÉE : VÉRIFICATION SOLDE ---
-    // Gestion double casse (SoldeDisponible ou soldeDisponible)
     let rawSolde = undefined;
     if (chauffeur.SoldeDisponible !== undefined) {
          rawSolde = chauffeur.SoldeDisponible;
@@ -367,7 +345,7 @@ exports.assignerChauffeurManuel = functions.https.onCall(async (data, context) =
     
     const soldeActuel = parseMoney(rawSolde);
 
-    console.log(` 🔍  [MANUEL] Check Solde ${chauffeurId}: Brut="${rawSolde}" -> Converti=${soldeActuel}`);
+    console.log(`🔍 [MANUEL] Check Solde ${chauffeurId}: Brut="${rawSolde}" -> Converti=${soldeActuel}`);
 
     if (soldeActuel < TRACKING_CONFIG.minSoldeRequis) {
         console.warn(`Tentative assignation manuelle rejetée. Solde: ${soldeActuel}`);
@@ -376,7 +354,6 @@ exports.assignerChauffeurManuel = functions.https.onCall(async (data, context) =
             `Solde insuffisant (${soldeActuel} FCFA). Le chauffeur doit avoir au moins ${TRACKING_CONFIG.minSoldeRequis} FCFA.`
         );
     }
-    // ----------------------------------------------------
 
     let distance = 5;
     if (chauffeur.position && chauffeur.position.latitude && reservation.departCoords) {
@@ -397,7 +374,6 @@ exports.assignerChauffeurManuel = functions.https.onCall(async (data, context) =
         throw new Error('Chauffeur plus disponible');
       }
 
-      // Double vérification solde transactionnelle
       let rawSoldeTrans = undefined;
       if (chauffeurCheckData.SoldeDisponible !== undefined) {
            rawSoldeTrans = chauffeurCheckData.SoldeDisponible;
@@ -431,7 +407,7 @@ exports.assignerChauffeurManuel = functions.https.onCall(async (data, context) =
       });
     });
     
-    console.log(' ✅  Assignation manuelle réussie');
+    console.log('✅ Assignation manuelle réussie');
     
     await db.collection('notifications').add({
       chauffeurId: chauffeurId,
@@ -458,18 +434,15 @@ exports.assignerChauffeurManuel = functions.https.onCall(async (data, context) =
     };
     
   } catch (error) {
-    console.error(' ❌  Erreur:', error);
+    console.error('❌ Erreur:', error);
     throw new functions.https.HttpsError('internal', error.message);
   }
 });
 
-/**
- * Système de fallback - Vérification des timeouts
- */
 exports.verifierAssignationTimeout = functions.pubsub
   .schedule('every 5 minutes')
   .onRun(async (context) => {
-    console.log(' 🔍  Vérification timeouts...');
+    console.log('🔍 Vérification timeouts...');
     const params = await getSystemParams();
     const maintenant = Date.now();
     const timeout = params.delaiReassignation * 60 * 1000;
@@ -487,7 +460,7 @@ exports.verifierAssignationTimeout = functions.pubsub
           const tempsEcoule = maintenant - reservation.dateAssignation.toMillis();
           
           if (tempsEcoule > timeout) {
-            console.log(` ⚠️  Timeout: ${doc.id}`);
+            console.log(`⚠️ Timeout: ${doc.id}`);
             promesses.push(reassignerChauffeur(doc.id, reservation));
           }
         }
@@ -496,11 +469,11 @@ exports.verifierAssignationTimeout = functions.pubsub
       await Promise.all(promesses);
       
       if (promesses.length > 0) {
-        console.log(` ✅  ${promesses.length} r é assignations`);
+        console.log(`✅ ${promesses.length} réassignations`);
       }
       
     } catch (error) {
-      console.error(' ❌  Erreur timeout:', error);
+      console.error('❌ Erreur timeout:', error);
     }
     return null;
   });
@@ -532,15 +505,12 @@ async function reassignerChauffeur(reservationId, reservation) {
       chauffeursRefuses: admin.firestore.FieldValue.arrayUnion(reservation.chauffeurAssigne || ''),
       tentativesAssignation: admin.firestore.FieldValue.increment(1)
     });
-    console.log(` ✅  R é servation ${reservationId} r é initialis é e`);
+    console.log(`✅ Réservation ${reservationId} réinitialisée`);
   } catch (error) {
-    console.error(` ❌  Erreur r é assignation ${reservationId}:`, error);
+    console.error(`❌ Erreur réassignation ${reservationId}:`, error);
   }
 }
 
-/**
- * Terminer une course
- */
 exports.terminerCourse = functions.https.onCall(async (data, context) => {
   if (!context.auth && !data.adminToken) {
     throw new functions.https.HttpsError('unauthenticated', 'Non authentifié');
@@ -566,9 +536,6 @@ exports.terminerCourse = functions.https.onCall(async (data, context) => {
   }
 });
 
-/**
- * Annuler une réservation
- */
 exports.annulerReservation = functions.https.onCall(async (data, context) => {
   if (!context.auth && !data.adminToken) {
     throw new functions.https.HttpsError('unauthenticated', 'Non authentifié');
@@ -599,13 +566,10 @@ exports.annulerReservation = functions.https.onCall(async (data, context) => {
   }
 });
 
-/**
- * Vérification de cohérence des chauffeurs
- */
 exports.verifierCoherenceChauffeurs = functions.pubsub
   .schedule('every 1 hours')
   .onRun(async (context) => {
-    console.log(' 🔍  Vérification cohérence...');
+    console.log('🔍 Vérification cohérence...');
     
     try {
       const snapshot = await db.collection('drivers').get();
@@ -627,7 +591,7 @@ exports.verifierCoherenceChauffeurs = functions.pubsub
             return;
           }
           
-          console.log(` 🔧  Correction: ${doc.id}`);
+          console.log(`🔧 Correction: ${doc.id}`);
           
           corrections.push(
             db.collection('drivers').doc(doc.id).update({
@@ -640,467 +604,19 @@ exports.verifierCoherenceChauffeurs = functions.pubsub
       
       if (corrections.length > 0) {
         await Promise.all(corrections);
-        console.log(` ✅  ${corrections.length} corrections`);
+        console.log(`✅ ${corrections.length} corrections`);
       }
       
     } catch (error) {
-      console.error(' ❌  Erreur coh é rence:', error);
+      console.error('❌ Erreur cohérence:', error);
     }
     return null;
   });
 
 // ==========================================
-// SECTION 2: TRACKING GPS EN TEMPS RÉEL
+// SECTION 2: CRÉDITS AUTOMATIQUES
 // ==========================================
 
-/**
- * Trigger sur les mises à jour de position des chauffeurs
- */
-exports.onDriverPositionUpdate = functions.firestore
-    .document('drivers/{driverId}')
-    .onUpdate(async (change, context) => {
-        const before = change.before.data();
-        const after = change.after.data();
-        const driverId = context.params.driverId;
-        // Vérifier si la position a changé
-        if (!after.position || !before.position) return null;
-        const oldPos = before.position;
-        const newPos = after.position;
-        // Si pas de changement significatif, ignorer
-        if (oldPos.latitude === newPos.latitude && 
-            oldPos.longitude === newPos.longitude) {
-            return null;
-        }
-        console.log(` 📍  Position mise à jour: ${driverId}`);
-        try {
-            // Calculer la distance parcourue
-            const distance = calculerDistance(
-                oldPos.latitude,
-                oldPos.longitude,
-                newPos.latitude,
-                newPos.longitude
-            );
-            // Calculer la vitesse
-            const timeDiff = (newPos.timestamp?.toMillis() || Date.now()) - 
-                            (oldPos.timestamp?.toMillis() || Date.now() - 3000);
-            const vitesse = (distance / (timeDiff / 1000)) * 3.6; // km/h
-            // Vérifications de cohérence
-            const anomalies = [];
-            if (vitesse > TRACKING_CONFIG.speedThreshold) {
-                anomalies.push(`Vitesse excessive: ${vitesse.toFixed(0)} km/h`);
-            }
-            if (newPos.accuracy > TRACKING_CONFIG.accuracyThreshold) {
-                anomalies.push(`Précision GPS faible: ${newPos.accuracy}m`);
-            }
-            // Logger les anomalies
-            if (anomalies.length > 0) {
-                await db.collection('tracking_anomalies').add({
-                    driverId: driverId,
-                    timestamp: admin.firestore.FieldValue.serverTimestamp(),
-                    anomalies: anomalies,
-                    position: newPos,
-                    calculatedSpeed: vitesse
-                });
-            }
-            // Mettre à jour les statistiques
-            await db.collection('driver_stats').doc(driverId).set({
-                lastPosition: newPos,
-                lastUpdate: admin.firestore.FieldValue.serverTimestamp(),
-                calculatedSpeed: vitesse,
-                totalDistanceToday: admin.firestore.FieldValue.increment(distance)
-            }, { merge: true });
-            // Si le chauffeur est en course, mettre à jour les détails de la course
-            if (after.currentBookingId) {
-                await updateCourseTracking(after.currentBookingId, newPos, distance);
-            }
-        } catch (error) {
-            console.error(' ❌  Erreur traitement position:', error);
-        }
-        return null;
-    });
-
-/**
- * Met à jour le tracking d'une course active
- */
-async function updateCourseTracking(courseId, position, distanceIncrement) {
-    try {
-        const courseRef = db.collection('reservations').doc(courseId);
-        const courseDoc = await courseRef.get();
-        if (!courseDoc.exists) return;
-        const course = courseDoc.data();
-        // Calculer l'ETA si on a une destination
-        let eta = null;
-        if (course.destinationCoords && position) {
-            const distanceRestante = calculerDistance(
-                position.latitude,
-                position.longitude,
-                course.destinationCoords.lat,
-                course.destinationCoords.lng
-            );
-            const vitesseMoyenne = position.speed ? position.speed * 3.6 : 40; // km/h
-            const tempsRestant = (distanceRestante / vitesseMoyenne) * 60; // minutes
-            eta = new Date(Date.now() + tempsRestant * 60000);
-        }
-        // Mettre à jour
-        await courseRef.update({
-            chauffeurPosition: position,
-            lastTrackingUpdate: admin.firestore.FieldValue.serverTimestamp(),
-            distanceReelleParcourue: admin.firestore.FieldValue.increment(distanceIncrement * 1000),
-            estimatedArrival: eta
-        });
-        console.log(` ✅  Course ${courseId} track é e`);
-    } catch (error) {
-        console.error(' ❌  Erreur update course tracking:', error);
-    }
-}
-
-/**
- * Détecte les chauffeurs inactifs (pas de mise à jour GPS)
- */
-exports.detectInactiveDrivers = functions.pubsub
-    .schedule('every 5 minutes')
-    .onRun(async (context) => {
-        console.log(' 🔍  Vérification chauffeurs inactifs...');
-        const cutoffTime = new Date(Date.now() - TRACKING_CONFIG.maxInactivityMinutes * 60000);
-        try {
-            const snapshot = await db.collection('drivers')
-                .where('statut', 'in', ['disponible', 'en_course'])
-                .get();
-            const inactiveDrivers = [];
-            snapshot.forEach(doc => {
-                const data = doc.data();
-                const lastUpdate = data.derniereActivite?.toDate() || 
-                                  data.position?.timestamp?.toDate();
-                if (lastUpdate && lastUpdate < cutoffTime) {
-                    inactiveDrivers.push({
-                        id: doc.id,
-                        nom: `${data.prenom} ${data.nom}`,
-                        lastUpdate: lastUpdate,
-                        statut: data.statut
-                    });
-                }
-            });
-            if (inactiveDrivers.length > 0) {
-                console.log(` ⚠️  ${inactiveDrivers.length} chauffeurs inactifs détectés`);
-                // Créer une notification admin
-                await db.collection('notifications_admin').add({
-                    type: 'chauffeurs_inactifs',
-                    count: inactiveDrivers.length,
-                    drivers: inactiveDrivers,
-                    timestamp: admin.firestore.FieldValue.serverTimestamp(),
-                    lu: false
-                });
-                // Passer les chauffeurs en "hors ligne suspect"
-                const batch = db.batch();
-                inactiveDrivers.forEach(driver => {
-                    batch.update(db.collection('drivers').doc(driver.id), {
-                        statut: 'hors_ligne',
-                        inactivityDetected: true,
-                        lastInactivityCheck: admin.firestore.FieldValue.serverTimestamp()
-                    });
-                });
-                await batch.commit();
-            }
-        } catch (error) {
-            console.error(' ❌  Erreur d é tection inactivit é :', error);
-        }
-        return null;
-    });
-
-/**
- * Vérifie si un chauffeur entre/sort de zones spécifiques
- */
-exports.checkGeofences = functions.firestore
-    .document('position_history/{positionId}')
-    .onCreate(async (snap, context) => {
-        const position = snap.data();
-        const driverId = position.driverId;
-        try {
-            // Récupérer les zones de géofence
-            const geofencesSnapshot = await db.collection('geofences')
-                .where('active', '==', true)
-                .get();
-            if (geofencesSnapshot.empty) return null;
-            const alerts = [];
-            geofencesSnapshot.forEach(doc => {
-                const zone = doc.data();
-                const distance = calculerDistance(
-                    position.position.latitude,
-                    position.position.longitude,
-                    zone.center.latitude,
-                    zone.center.longitude
-                );
-                // Si dans la zone
-                if (distance <= zone.radius / 1000) { // convertir m en km
-                    alerts.push({
-                        zoneId: doc.id,
-                        zoneName: zone.name,
-                        type: zone.type, // 'alert', 'restricted', 'pickup_zone'
-                        distance: distance
-                    });
-                }
-            });
-            // Si des alertes, les créer
-            if (alerts.length > 0) {
-                await db.collection('geofence_events').add({
-                    driverId: driverId,
-                    position: position.position,
-                    alerts: alerts,
-                    timestamp: admin.firestore.FieldValue.serverTimestamp()
-                });
-                console.log(` 🚨  ${alerts.length} alertes géofence pour ${driverId}`);
-            }
-        } catch (error) {
-            console.error(' ❌  Erreur g é ofencing:', error);
-        }
-        return null;
-    });
-
-/**
- * Calcule les statistiques de tracking quotidiennes
- */
-exports.calculateDailyTrackingStats = functions.pubsub
-    .schedule('every day 00:01')
-    .timeZone('Africa/Dakar')
-    .onRun(async (context) => {
-        console.log(' 📊  Calcul stats tracking quotidiennes...');
-        const yesterday = new Date();
-        yesterday.setDate(yesterday.getDate() - 1);
-        yesterday.setHours(0, 0, 0, 0);
-        const today = new Date(yesterday);
-        today.setDate(today.getDate() + 1);
-        try {
-            const driversSnapshot = await db.collection('drivers').get();
-            const statsPromises = driversSnapshot.docs.map(async (driverDoc) => {
-                const driverId = driverDoc.id;
-                // Récupérer toutes les positions d'hier
-                const positionsSnapshot = await db.collection('position_history')
-                    .where('driverId', '==', driverId)
-                    .where('timestamp', '>=', yesterday)
-                    .where('timestamp', '<', today)
-                    .orderBy('timestamp', 'asc')
-                    .get();
-                if (positionsSnapshot.empty) return null;
-                let totalDistance = 0;
-                let totalTime = 0;
-                let maxSpeed = 0;
-                let positionsCount = positionsSnapshot.size;
-                const positions = [];
-                positionsSnapshot.forEach(doc => positions.push(doc.data()));
-                // Calculer les stats
-                for (let i = 1; i < positions.length; i++) {
-                    const prev = positions[i - 1];
-                    const curr = positions[i];
-                    const distance = calculerDistance(
-                        prev.position.latitude,
-                        prev.position.longitude,
-                        curr.position.latitude,
-                        curr.position.longitude
-                    );
-                    totalDistance += distance;
-                    const speed = curr.speed || 0;
-                    if (speed > maxSpeed) maxSpeed = speed;
-                    const timeDiff = (curr.timestamp?.toMillis() || 0) - 
-                                    (prev.timestamp?.toMillis() || 0);
-                    totalTime += timeDiff;
-                }
-                // Sauvegarder les stats
-                await db.collection('daily_tracking_stats').add({
-                    driverId: driverId,
-                    date: yesterday,
-                    totalDistance: totalDistance, // km
-                    totalTime: totalTime / 1000 / 60, // minutes
-                    averageSpeed: totalDistance / (totalTime / 1000 / 3600), // km/h
-                    maxSpeed: maxSpeed * 3.6, // km/h
-                    positionsCount: positionsCount,
-                    createdAt: admin.firestore.FieldValue.serverTimestamp()
-                });
-                console.log(` ✅  Stats calcul é es pour ${driverId}: ${totalDistance.toFixed(2)} km`);
-                return {
-                    driverId: driverId,
-                    distance: totalDistance
-                };
-            });
-            const results = await Promise.all(statsPromises);
-            const validResults = results.filter(r => r !== null);
-            console.log(` ✅  Stats calcul é es pour ${validResults.length} chauffeurs`);
-        } catch (error) {
-            console.error(' ❌  Erreur calcul stats:', error);
-        }
-        return null;
-    });
-
-/**
- * Nettoie l'historique des positions anciennes (>7 jours)
- */
-exports.cleanupOldPositionHistory = functions.pubsub
-    .schedule('every day 02:00')
-    .timeZone('Africa/Dakar')
-    .onRun(async (context) => {
-        console.log(' 🧹  Nettoyage historique positions...');
-        const cutoffDate = new Date();
-        cutoffDate.setDate(cutoffDate.getDate() - 7);
-        try {
-            let deletedCount = 0;
-            let hasMore = true;
-            while (hasMore) {
-                const snapshot = await db.collection('position_history')
-                    .where('timestamp', '<', cutoffDate)
-                    .limit(500)
-                    .get();
-                if (snapshot.empty) {
-                    hasMore = false;
-                    break;
-                }
-                const batch = db.batch();
-                snapshot.docs.forEach(doc => {
-                    batch.delete(doc.ref);
-                });
-                await batch.commit();
-                deletedCount += snapshot.size;
-                console.log(` 🗑️  ${deletedCount} positions supprimées...`);
-            }
-            console.log(` ✅  Nettoyage termin é : ${deletedCount} positions supprim é es`);
-            // Logger le nettoyage
-            await db.collection('system_logs').add({
-                type: 'cleanup_position_history',
-                deletedCount: deletedCount,
-                cutoffDate: cutoffDate,
-                timestamp: admin.firestore.FieldValue.serverTimestamp()
-            });
-        } catch (error) {
-            console.error(' ❌  Erreur nettoyage:', error);
-        }
-        return null;
-    });
-
-// ==========================================
-// SECTION 3: APIs TRACKING
-// ==========================================
-
-/**
- * Récupère l'historique de tracking d'un chauffeur
- */
-exports.getDriverTrackingHistory = functions.https.onCall(async (data, context) => {
-    const { driverId, startDate, endDate, sessionId } = data;
-    if (!driverId) {
-        throw new functions.https.HttpsError('invalid-argument', 'Driver ID requis');
-    }
-    try {
-        let query = db.collection('position_history')
-            .where('driverId', '==', driverId);
-        if (sessionId) {
-            query = query.where('sessionId', '==', sessionId);
-        }
-        if (startDate) {
-            query = query.where('timestamp', '>=', new Date(startDate));
-        }
-        if (endDate) {
-            query = query.where('timestamp', '<=', new Date(endDate));
-        }
-        query = query.orderBy('timestamp', 'asc').limit(1000);
-        const snapshot = await query.get();
-        const positions = [];
-        snapshot.forEach(doc => {
-            const data = doc.data();
-            positions.push({
-                lat: data.position.latitude,
-                lng: data.position.longitude,
-                speed: data.speed,
-                accuracy: data.accuracy,
-                timestamp: data.timestamp?.toDate()
-            });
-        });
-        return {
-            success: true,
-            count: positions.length,
-            positions: positions
-        };
-    } catch (error) {
-        console.error(' ❌  Erreur:', error);
-        throw new functions.https.HttpsError('internal', error.message);
-    }
-});
-
-/**
- * Récupère les statistiques de tracking d'un chauffeur
- */
-exports.getDriverTrackingStats = functions.https.onCall(async (data, context) => {
-    const { driverId, period } = data;
-    if (!driverId) {
-        throw new functions.https.HttpsError('invalid-argument', 'Driver ID requis');
-    }
-    try {
-        const stats = {
-            today: {},
-            week: {},
-            month: {},
-            total: {}
-        };
-        // Stats aujourd'hui
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        const todaySnapshot = await db.collection('position_history')
-            .where('driverId', '==', driverId)
-            .where('timestamp', '>=', today)
-            .get();
-        stats.today = await calculateStatsFromPositions(todaySnapshot);
-        // Stats dernière semaine
-        const weekAgo = new Date();
-        weekAgo.setDate(weekAgo.getDate() - 7);
-        weekAgo.setHours(0, 0, 0, 0);
-        const weekSnapshot = await db.collection('daily_tracking_stats')
-            .where('driverId', '==', driverId)
-            .where('date', '>=', weekAgo)
-            .get();
-        stats.week = aggregateDailyStats(weekSnapshot);
-        // Stats mois
-        const monthAgo = new Date();
-        monthAgo.setDate(monthAgo.getDate() - 30);
-        monthAgo.setHours(0, 0, 0, 0);
-        const monthSnapshot = await db.collection('daily_tracking_stats')
-            .where('driverId', '==', driverId)
-            .where('date', '>=', monthAgo)
-            .get();
-        stats.month = aggregateDailyStats(monthSnapshot);
-        return {
-            success: true,
-            stats: stats
-        };
-    } catch (error) {
-        console.error(' ❌  Erreur:', error);
-        throw new functions.https.HttpsError('internal', error.message);
-    }
-});
-
-// ==========================================
-// FONCTIONS UTILITAIRES
-// ==========================================
-
-function calculerDistance(lat1, lng1, lat2, lng2) {
-  const R = 6371; // Rayon de la Terre en km
-  const dLat = toRad(lat2 - lat1);
-  const dLng = toRad(lng2 - lng1);
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
-    Math.sin(dLng / 2) * Math.sin(dLng / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
-}
-
-function toRad(valeur) {
-  return valeur * Math.PI / 180;
-}
-// ============================================================
-// COPIEZ CES DEUX FONCTIONS DANS VOTRE index.js
-// Collez-les APRÈS la fonction getSystemParams() et AVANT assignerChauffeurAutomatique
-// ============================================================
-
-/**
- * Crédite automatiquement le chauffeur quand une course est terminée et payée
- * Se déclenche UNIQUEMENT sur la mise à jour du champ paiementValide
- */
 exports.crediterChauffeurAutomatique = functions.firestore
     .document('reservations/{reservationId}')
     .onUpdate(async (change, context) => {
@@ -1108,26 +624,22 @@ exports.crediterChauffeurAutomatique = functions.firestore
         const after = change.after.data();
         const reservationId = context.params.reservationId;
         
-        // ✅ VÉRIFICATION 1: Le paiement vient d'être validé
         if (before.paiementValide === true || after.paiementValide !== true) {
             return null;
         }
         
         console.log(`💰 [CRÉDIT AUTO] Paiement détecté pour réservation: ${reservationId}`);
         
-        // ✅ VÉRIFICATION 2: La course doit être terminée
         if (after.statut !== 'terminee') {
             console.log(`⏭️ [CRÉDIT AUTO] Course pas terminée (statut: ${after.statut}), ignorée`);
             return null;
         }
         
-        // ✅ VÉRIFICATION 3: Ne pas recréditer
         if (after.chauffeurCredite === true) {
             console.log(`⏭️ [CRÉDIT AUTO] Déjà crédité, ignoré`);
             return null;
         }
         
-        // ✅ VÉRIFICATION 4: Chauffeur assigné
         if (!after.chauffeurAssigne) {
             console.log(`❌ [CRÉDIT AUTO] Pas de chauffeur assigné`);
             return null;
@@ -1147,10 +659,8 @@ exports.crediterChauffeurAutomatique = functions.firestore
         console.log(`💵 [CRÉDIT AUTO] Montant à créditer: ${netAmount} FCFA (sur ${prixEstime} FCFA)`);
         
         try {
-            // 🔒 TRANSACTION ATOMIQUE FIRESTORE
             await db.runTransaction(async (transaction) => {
                 
-                // 1️⃣ Relire la réservation pour vérifier
                 const reservationRef = db.collection('reservations').doc(reservationId);
                 const reservationDoc = await transaction.get(reservationRef);
                 
@@ -1160,7 +670,6 @@ exports.crediterChauffeurAutomatique = functions.firestore
                 
                 const reservationData = reservationDoc.data();
                 
-                // 2️⃣ VÉRIFICATIONS CRITIQUES
                 if (reservationData.statut !== 'terminee') {
                     throw new Error('COURSE_NOT_COMPLETED');
                 }
@@ -1177,7 +686,6 @@ exports.crediterChauffeurAutomatique = functions.firestore
                     throw new Error('WRONG_DRIVER');
                 }
                 
-                // 3️⃣ Lire le chauffeur
                 const driverRef = db.collection('drivers').doc(driverId);
                 const driverDoc = await transaction.get(driverRef);
                 
@@ -1187,7 +695,6 @@ exports.crediterChauffeurAutomatique = functions.firestore
                 
                 const driverData = driverDoc.data();
                 
-                // 4️⃣ Calculer les nouveaux soldes (gestion double casse)
                 const oldSolde = parseMoney(driverData.soldeDisponible || driverData.SoldeDisponible);
                 const newSolde = oldSolde + netAmount;
                 
@@ -1208,7 +715,6 @@ exports.crediterChauffeurAutomatique = functions.firestore
                 
                 console.log(`📊 [CRÉDIT AUTO] Nouveau solde: ${newSolde} FCFA (ancien: ${oldSolde} FCFA)`);
                 
-                // 5️⃣ Mise à jour du chauffeur
                 transaction.update(driverRef, {
                     soldeDisponible: newSolde,
                     revenusJour: newRevenusJour,
@@ -1219,7 +725,6 @@ exports.crediterChauffeurAutomatique = functions.firestore
                     dernierCredit: admin.firestore.FieldValue.serverTimestamp()
                 });
                 
-                // 6️⃣ Marquer la réservation comme créditée
                 transaction.update(reservationRef, {
                     chauffeurCredite: true,
                     dateCreditChauffeur: admin.firestore.FieldValue.serverTimestamp(),
@@ -1233,7 +738,6 @@ exports.crediterChauffeurAutomatique = functions.firestore
             
             console.log(`✅ [CRÉDIT AUTO] Crédit réussi: ${netAmount} FCFA pour ${driverId}`);
             
-            // 📝 Créer une notification pour le chauffeur
             await db.collection('notifications').add({
                 chauffeurId: driverId,
                 type: 'credit_recu',
@@ -1244,7 +748,6 @@ exports.crediterChauffeurAutomatique = functions.firestore
                 lu: false
             });
             
-            // 📊 Logger l'opération
             await db.collection('credit_logs').add({
                 reservationId: reservationId,
                 chauffeurId: driverId,
@@ -1260,7 +763,6 @@ exports.crediterChauffeurAutomatique = functions.firestore
         } catch (error) {
             console.error(`❌ [CRÉDIT AUTO] Erreur pour ${reservationId}:`, error.message);
             
-            // Logger l'erreur sans bloquer
             await db.collection('credit_errors').add({
                 reservationId: reservationId,
                 chauffeurId: driverId,
@@ -1269,17 +771,11 @@ exports.crediterChauffeurAutomatique = functions.firestore
                 timestamp: admin.firestore.FieldValue.serverTimestamp()
             });
             
-            // Ne pas relancer l'erreur pour éviter de re-trigger
             return null;
         }
     });
 
-/**
- * Fonction de récupération manuelle pour les courses non créditées
- * À appeler depuis l'admin si nécessaire
- */
 exports.recupererCreditsManques = functions.https.onCall(async (data, context) => {
-    // Vérification admin
     if (!context.auth && !data.adminToken) {
         throw new functions.https.HttpsError('unauthenticated', 'Non authentifié');
     }
@@ -1287,7 +783,6 @@ exports.recupererCreditsManques = functions.https.onCall(async (data, context) =
     console.log('🔧 [RÉCUP] Recherche des crédits manqués...');
     
     try {
-        // Trouver toutes les courses terminées, payées mais non créditées
         const snapshot = await db.collection('reservations')
             .where('statut', '==', 'terminee')
             .where('paiementValide', '==', true)
@@ -1306,7 +801,6 @@ exports.recupererCreditsManques = functions.https.onCall(async (data, context) =
         
         const results = [];
         
-        // Traiter chaque course
         for (const doc of snapshot.docs) {
             const reservationId = doc.id;
             const reservation = doc.data();
@@ -1317,7 +811,6 @@ exports.recupererCreditsManques = functions.https.onCall(async (data, context) =
                 const netAmount = Math.round(prixEstime * PAYMENT_CONFIG.driverRate);
                 const platformAmount = prixEstime - netAmount;
                 
-                // Transaction atomique
                 await db.runTransaction(async (transaction) => {
                     const driverRef = db.collection('drivers').doc(driverId);
                     const driverDoc = await transaction.get(driverRef);
@@ -1378,394 +871,71 @@ exports.recupererCreditsManques = functions.https.onCall(async (data, context) =
     }
 });
 
-// ============================================================
-// FIN DES FONCTIONS À COPIER
-// Continuez avec vos autres exports (assignerChauffeurAutomatique, etc.)
-// ============================================================
+// ==========================================
+// FONCTIONS UTILITAIRES
+// ==========================================
 
-async function calculateStatsFromPositions(snapshot) {
-    if (snapshot.empty) {
-        return {
-            totalDistance: 0,
-            averageSpeed: 0,
-            maxSpeed: 0,
-            positionsCount: 0
-        };
-    }
-    let totalDistance = 0;
-    let maxSpeed = 0;
-    const positions = [];
-    snapshot.forEach(doc => positions.push(doc.data()));
-    for (let i = 1; i < positions.length; i++) {
-        const prev = positions[i - 1];
-        const curr = positions[i];
-        const distance = calculerDistance(
-            prev.position.latitude,
-            prev.position.longitude,
-            curr.position.latitude,
-            curr.position.longitude
-        );
-        totalDistance += distance;
-        const speed = (curr.speed || 0) * 3.6;
-        if (speed > maxSpeed) maxSpeed = speed;
-    }
-    return {
-        totalDistance: totalDistance,
-        averageSpeed: positions.length > 0 ? 
-            positions.reduce((sum, p) => sum + ((p.speed || 0) * 3.6), 0) / positions.length : 0,
-        maxSpeed: maxSpeed,
-        positionsCount: positions.length
-    };
+function calculerDistance(lat1, lng1, lat2, lng2) {
+  const R = 6371;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+    Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
 }
 
-function aggregateDailyStats(snapshot) {
-    if (snapshot.empty) {
-        return {
-            totalDistance: 0,
-            averageSpeed: 0,
-            maxSpeed: 0,
-            totalTime: 0
-        };
-    }
-    let totalDistance = 0;
-    let totalTime = 0;
-    let maxSpeed = 0;
-    let speedSum = 0;
-    let count = 0;
-    snapshot.forEach(doc => {
-        const data = doc.data();
-        totalDistance += data.totalDistance || 0;
-        totalTime += data.totalTime || 0;
-        if ((data.maxSpeed || 0) > maxSpeed) maxSpeed = data.maxSpeed;
-        speedSum += data.averageSpeed || 0;
-        count++;
-    });
-    return {
-        totalDistance: totalDistance,
-        averageSpeed: count > 0 ? speedSum / count : 0,
-        maxSpeed: maxSpeed,
-        totalTime: totalTime
-    };
+function toRad(valeur) {
+  return valeur * Math.PI / 180;
 }
 
-// ==========================================
-// COORDONNÉES COMPLÈTES - 174 QUARTIERS DE DAKAR
-// (129 quartiers de base + 45 quartiers de Keur Massar)
-// ==========================================
 function getDefaultCoordsForAddress(address) {
   const coords = {
-    // ====================================
-    // ZONE 1: DAKAR PLATEAU (15 quartiers)
-    // ====================================
     'plateau': { lat: 14.6928, lng: -17.4467 },
     'place de l\'indépendance': { lat: 14.6928, lng: -17.4467 },
     'rebeuss': { lat: 14.6850, lng: -17.4450 },
     'port': { lat: 14.6800, lng: -17.4150 },
     'petersen': { lat: 14.6890, lng: -17.4380 },
     'sandaga': { lat: 14.6750, lng: -17.4300 },
-    'tilene': { lat: 14.6800, lng: -17.4200 },
-    'kermel': { lat: 14.6700, lng: -17.4350 },
-    'marché sandaga': { lat: 14.6750, lng: -17.4300 },
-    'marché kermel': { lat: 14.6700, lng: -17.4350 },
-    'gare routière': { lat: 14.6780, lng: -17.4400 },
-    'dieuppeul': { lat: 14.6900, lng: -17.4600 },
     'medina': { lat: 14.6738, lng: -17.4387 },
-    'gueule tapée': { lat: 14.6800, lng: -17.4350 },
-    'gueule tapee': { lat: 14.6800, lng: -17.4350 },
-    
-    // ====================================
-    // ZONE 2: MEDINA / FASS (12 quartiers)
-    // ====================================
     'fass': { lat: 14.6820, lng: -17.4500 },
-    'fass delorme': { lat: 14.6850, lng: -17.4520 },
-    'colobane': { lat: 14.6870, lng: -17.4550 },
-    'gueule tapée fass colobane': { lat: 14.6830, lng: -17.4480 },
-    'ndiolofene': { lat: 14.6760, lng: -17.4420 },
-    'derklé': { lat: 14.6790, lng: -17.4460 },
-    'derkle': { lat: 14.6790, lng: -17.4460 },
-    'reubeuss': { lat: 14.6850, lng: -17.4450 },
-    'somba gueladio': { lat: 14.6880, lng: -17.4380 },
-    'scat urbam': { lat: 14.6810, lng: -17.4490 },
-    'nim': { lat: 14.6795, lng: -17.4365 },
-    'dalifort': { lat: 14.7200, lng: -17.4100 },
-    
-    // ====================================
-    // ZONE 3: FANN / POINT E / MERMOZ (18 quartiers)
-    // ====================================
-    'fann': { lat: 14.6872, lng: -17.4535 },
-    'fann résidence': { lat: 14.6890, lng: -17.4550 },
-    'fann residence': { lat: 14.6890, lng: -17.4550 },
     'point e': { lat: 14.6953, lng: -17.4614 },
-    'point-e': { lat: 14.6953, lng: -17.4614 },
-    'amitié': { lat: 14.7014, lng: -17.4647 },
-    'amitie': { lat: 14.7014, lng: -17.4647 },
-    'sacré-coeur': { lat: 14.6937, lng: -17.4441 },
-    'sacre-coeur': { lat: 14.6937, lng: -17.4441 },
-    'sacre coeur': { lat: 14.6937, lng: -17.4441 },
     'mermoz': { lat: 14.7108, lng: -17.4682 },
-    'pyrotechnie': { lat: 14.6920, lng: -17.4580 },
-    'cité asecna': { lat: 14.7050, lng: -17.4700 },
-    'cite asecna': { lat: 14.7050, lng: -17.4700 },
-    'sicap baobabs': { lat: 14.7100, lng: -17.4650 },
-    'keur gorgui': { lat: 14.7020, lng: -17.4620 },
-    'fann bel air': { lat: 14.6900, lng: -17.4560 },
-    'fann bel-air': { lat: 14.6900, lng: -17.4560 },
-    'cité keur gorgui': { lat: 14.7020, lng: -17.4620 },
-    'cite keur gorgui': { lat: 14.7020, lng: -17.4620 },
-    
-    // ====================================
-    // ZONE 4: SICAP / HLM / GRAND YOFF (20 quartiers)
-    // ====================================
     'sicap': { lat: 14.7289, lng: -17.4594 },
     'hlm': { lat: 14.7306, lng: -17.4542 },
-    'hlm grand yoff': { lat: 14.7350, lng: -17.4600 },
-    'hlm grand-yoff': { lat: 14.7350, lng: -17.4600 },
     'grand yoff': { lat: 14.7400, lng: -17.4700 },
-    'grand-yoff': { lat: 14.7400, lng: -17.4700 },
-    'village grand yoff': { lat: 14.7450, lng: -17.4750 },
-    'arafat': { lat: 14.7380, lng: -17.4650 },
-    'cité millionnaire': { lat: 14.7320, lng: -17.4570 },
-    'cite millionnaire': { lat: 14.7320, lng: -17.4570 },
-    'sipres': { lat: 14.7340, lng: -17.4610 },
-    'sicap rue 10': { lat: 14.7270, lng: -17.4580 },
-    'sicap amitié': { lat: 14.7280, lng: -17.4600 },
-    'sicap amitie': { lat: 14.7280, lng: -17.4600 },
-    'sicap baobab': { lat: 14.7290, lng: -17.4620 },
-    'sicap mbao': { lat: 14.7300, lng: -17.4560 },
-    'sicap foire': { lat: 14.7250, lng: -17.4550 },
-    'dieuppeul derklé': { lat: 14.7150, lng: -17.4650 },
-    'dieuppeul derkle': { lat: 14.7150, lng: -17.4650 },
-    'camp pénal': { lat: 14.7360, lng: -17.4580 },
-    'camp penal': { lat: 14.7360, lng: -17.4580 },
-    'castors': { lat: 14.7420, lng: -17.4720 },
-    
-    // ====================================
-    // ZONE 5: PARCELLES ASSAINIES (15 quartiers)
-    // ====================================
     'parcelles assainies': { lat: 14.7369, lng: -17.4731 },
-    'parcelles': { lat: 14.7369, lng: -17.4731 },
-    'unité 1': { lat: 14.7300, lng: -17.4650 },
-    'unite 1': { lat: 14.7300, lng: -17.4650 },
-    'unité 2': { lat: 14.7320, lng: -17.4680 },
-    'unite 2': { lat: 14.7320, lng: -17.4680 },
-    'unité 3': { lat: 14.7340, lng: -17.4710 },
-    'unite 3': { lat: 14.7340, lng: -17.4710 },
-    'unité 4': { lat: 14.7360, lng: -17.4740 },
-    'unite 4': { lat: 14.7360, lng: -17.4740 },
-    'unité 5': { lat: 14.7380, lng: -17.4770 },
-    'unite 5': { lat: 14.7380, lng: -17.4770 },
-    'unité 6': { lat: 14.7400, lng: -17.4800 },
-    'unite 6': { lat: 14.7400, lng: -17.4800 },
-    'unité 7': { lat: 14.7420, lng: -17.4830 },
-    'unite 7': { lat: 14.7420, lng: -17.4830 },
-    'unité 8': { lat: 14.7440, lng: -17.4860 },
-    'unite 8': { lat: 14.7440, lng: -17.4860 },
-    'unité 9': { lat: 14.7460, lng: -17.4890 },
-    'unite 9': { lat: 14.7460, lng: -17.4890 },
-    'unité 10': { lat: 14.7480, lng: -17.4920 },
-    'unite 10': { lat: 14.7480, lng: -17.4920 },
-    'cambérène': { lat: 14.7500, lng: -17.4950 },
-    'camberene': { lat: 14.7500, lng: -17.4950 },
-    'apecsy': { lat: 14.7350, lng: -17.4760 },
-    'apix': { lat: 14.7370, lng: -17.4780 },
-    
-    // ====================================
-    // ZONE 6: OUEST (ALMADIES/NGOR/YOFF/OUAKAM) (18 quartiers)
-    // ====================================
     'almadies': { lat: 14.7247, lng: -17.5050 },
-    'les almadies': { lat: 14.7247, lng: -17.5050 },
-    'pointe des almadies': { lat: 14.7200, lng: -17.5300 },
     'ngor': { lat: 14.7517, lng: -17.5192 },
-    'virage ngor': { lat: 14.7500, lng: -17.5150 },
-    'village ngor': { lat: 14.7550, lng: -17.5250 },
-    'ile de ngor': { lat: 14.7600, lng: -17.5350 },
     'yoff': { lat: 14.7500, lng: -17.4833 },
-    'village yoff': { lat: 14.7550, lng: -17.4900 },
-    'tonghor': { lat: 14.7530, lng: -17.4850 },
-    'aeroport yoff': { lat: 14.7400, lng: -17.4900 },
-    'aéroport yoff': { lat: 14.7400, lng: -17.4900 },
     'ouakam': { lat: 14.7200, lng: -17.4900 },
-    'cité des eaux': { lat: 14.7150, lng: -17.4950 },
-    'cite des eaux': { lat: 14.7150, lng: -17.4950 },
-    'mamelles': { lat: 14.7100, lng: -17.5000 },
-    'les mamelles': { lat: 14.7100, lng: -17.5000 },
-    'virage': { lat: 14.7314, lng: -17.4636 },
-    'cité sonatel': { lat: 14.7250, lng: -17.4850 },
-    'cite sonatel': { lat: 14.7250, lng: -17.4850 },
-    
-    // ====================================
-    // ZONE 7: LIBERTÉ / GRAND DAKAR / HANN (16 quartiers)
-    // ====================================
     'liberté': { lat: 14.7186, lng: -17.4697 },
     'liberte': { lat: 14.7186, lng: -17.4697 },
-    'liberté 1': { lat: 14.7150, lng: -17.4650 },
-    'liberte 1': { lat: 14.7150, lng: -17.4650 },
-    'liberté 2': { lat: 14.7170, lng: -17.4680 },
-    'liberte 2': { lat: 14.7170, lng: -17.4680 },
-    'liberté 3': { lat: 14.7190, lng: -17.4710 },
-    'liberte 3': { lat: 14.7190, lng: -17.4710 },
-    'liberté 4': { lat: 14.7210, lng: -17.4740 },
-    'liberte 4': { lat: 14.7210, lng: -17.4740 },
-    'liberté 5': { lat: 14.7230, lng: -17.4770 },
-    'liberte 5': { lat: 14.7230, lng: -17.4770 },
-    'liberté 6': { lat: 14.7250, lng: -17.4800 },
-    'liberte 6': { lat: 14.7250, lng: -17.4800 },
-    'grand dakar': { lat: 14.6928, lng: -17.4580 },
-    'grand-dakar': { lat: 14.6928, lng: -17.4580 },
     'hann': { lat: 14.7150, lng: -17.4380 },
-    'bel air': { lat: 14.7100, lng: -17.4400 },
-    'bel-air': { lat: 14.7100, lng: -17.4400 },
-    'halte de hann': { lat: 14.7150, lng: -17.4380 },
-    'marché hann': { lat: 14.7130, lng: -17.4350 },
-    'marche hann': { lat: 14.7130, lng: -17.4350 },
-    'hann bel air': { lat: 14.7120, lng: -17.4390 },
-    'hann bel-air': { lat: 14.7120, lng: -17.4390 },
-    'hann maristes': { lat: 14.7140, lng: -17.4360 },
-    'patte d\'oie': { lat: 14.7200, lng: -17.4500 },
-    'patte d\'oie builders': { lat: 14.7220, lng: -17.4520 },
-    
-    // ====================================
-    // ZONE 8: PIKINE (10 quartiers)
-    // ====================================
     'pikine': { lat: 14.7549, lng: -17.3940 },
-    'pikine nord': { lat: 14.7600, lng: -17.3950 },
-    'pikine est': { lat: 14.7550, lng: -17.3850 },
-    'pikine ouest': { lat: 14.7500, lng: -17.4000 },
-    'pikine sud': { lat: 14.7480, lng: -17.3900 },
-    'thiaroye': { lat: 14.7730, lng: -17.3610 },
-    'thiaroye sur mer': { lat: 14.7750, lng: -17.3550 },
-    'diamaguène': { lat: 14.7600, lng: -17.3800 },
-    'diamaguene': { lat: 14.7600, lng: -17.3800 },
-    'icotaf': { lat: 14.7650, lng: -17.3700 },
-    'guinaw rail': { lat: 14.7520, lng: -17.3880 },
-    
-    // ====================================
-    // ZONE 9: GUÉDIAWAYE (10 quartiers)
-    // ====================================
     'guédiawaye': { lat: 14.7690, lng: -17.3990 },
     'guediawaye': { lat: 14.7690, lng: -17.3990 },
-    'sam notaire': { lat: 14.7700, lng: -17.4100 },
-    'sam': { lat: 14.7700, lng: -17.4100 },
-    'ndiarème limamoulaye': { lat: 14.7720, lng: -17.4050 },
-    'ndiarem limamoulaye': { lat: 14.7720, lng: -17.4050 },
-    'golf sud': { lat: 14.7750, lng: -17.4200 },
-    'hamo': { lat: 14.7770, lng: -17.4150 },
-    'médina gounass': { lat: 14.7680, lng: -17.3950 },
-    'medina gounass': { lat: 14.7680, lng: -17.3950 },
-    'wakhinane': { lat: 14.7730, lng: -17.4000 },
-    'golf': { lat: 14.7750, lng: -17.4200 },
-    'ndiarème': { lat: 14.7720, lng: -17.4050 },
-    'ndiarem': { lat: 14.7720, lng: -17.4050 },
-    
-    // ====================================
-    // ZONE 10: KEUR MASSAR (45+ quartiers)  ⭐  NOUVEAU  ⭐
-    // ====================================
-    
-    // Zone Centrale
     'keur massar': { lat: 14.7833, lng: -17.3167 },
-    'keurmassar': { lat: 14.7833, lng: -17.3167 },
-    'keur massar centre': { lat: 14.7833, lng: -17.3167 },
-    'keur massar ville': { lat: 14.7850, lng: -17.3150 },
-    'keur massar marché': { lat: 14.7820, lng: -17.3180 },
-    'keur massar marche': { lat: 14.7820, lng: -17.3180 },
-    
-    // Boune
     'boune': { lat: 14.7950, lng: -17.3250 },
-    'boune 1': { lat: 14.7960, lng: -17.3240 },
-    'boune 2': { lat: 14.7970, lng: -17.3260 },
-    'boune 3': { lat: 14.7980, lng: -17.3280 },
-    'boune cité darou salam': { lat: 14.7940, lng: -17.3230 },
-    'boune cite darou salam': { lat: 14.7940, lng: -17.3230 },
-    'boune extension': { lat: 14.8000, lng: -17.3270 },
-    
-    // Tivaouane Peulh
     'tivaouane peulh': { lat: 14.8050, lng: -17.3300 },
-    'tivaouane peul': { lat: 14.8050, lng: -17.3300 },
-    'tivaoune peul': { lat: 14.8050, lng: -17.3300 },
-    'tivaouane peulh niaga': { lat: 14.8070, lng: -17.3280 },
-    'tivaouane peulh comico': { lat: 14.8060, lng: -17.3320 },
-    'tivaouane peulh 1': { lat: 14.8040, lng: -17.3290 },
-    'tivaouane peulh 2': { lat: 14.8080, lng: -17.3310 },
-    'tivaouane diacksao': { lat: 14.8100, lng: -17.3350 },
-    'tivaouane peulh baraque': { lat: 14.8120, lng: -17.3370 },
-    
-    // Jaxaay
     'jaxaay': { lat: 14.7800, lng: -17.2950 },
-    'djaxaay': { lat: 14.7800, lng: -17.2950 },
-    'jaxaye': { lat: 14.7800, lng: -17.2950 },
-    'jaxaay parcelles': { lat: 14.7820, lng: -17.2920 },
-    'jaxaay deggo': { lat: 14.7790, lng: -17.2970 },
-    'jaxaay bambilor': { lat: 14.7780, lng: -17.2900 },
-    'bambilor': { lat: 14.7780, lng: -17.2900 },
-    'jaxaay extension': { lat: 14.7840, lng: -17.2940 },
-    
-    // Yeumbeul
     'yeumbeul': { lat: 14.7720, lng: -17.3420 },
-    'yembeul': { lat: 14.7720, lng: -17.3420 },
-    'yeumbeul nord': { lat: 14.7750, lng: -17.3400 },
-    'yeumbeul sud': { lat: 14.7700, lng: -17.3450 },
-    'yeumbeul centre': { lat: 14.7720, lng: -17.3420 },
-    'yeumbeul comico': { lat: 14.7740, lng: -17.3440 },
-    'yeumbeul soprim': { lat: 14.7760, lng: -17.3380 },
-    'arafat yeumbeul': { lat: 14.7730, lng: -17.3460 },
-    
-    // Malika
     'malika': { lat: 14.7800, lng: -17.3600 },
-    'malika centre': { lat: 14.7800, lng: -17.3600 },
-    'malika plateau': { lat: 14.7820, lng: -17.3620 },
-    'malika gare': { lat: 14.7780, lng: -17.3580 },
-    'malika stade': { lat: 14.7810, lng: -17.3640 },
-    
-    // Mbeubeuss
-    'mbeubeuss': { lat: 14.7750, lng: -17.3000 },
-    'mbeubeus': { lat: 14.7750, lng: -17.3000 },
-    'mbeubeuss centre': { lat: 14.7750, lng: -17.3000 },
-    'mbeubeuss extension': { lat: 14.7770, lng: -17.2980 },
-    'mbeubeuss décharge': { lat: 14.7730, lng: -17.3020 },
-    'mbeubeuss decharge': { lat: 14.7730, lng: -17.3020 },
-    
-    // Ndiaganiao
-    'ndiaganiao': { lat: 14.7900, lng: -17.3050 },
-    'ndiagagnao': { lat: 14.7900, lng: -17.3050 },
-    'ndiaganiao centre': { lat: 14.7900, lng: -17.3050 },
-    'ndiaganiao extension': { lat: 14.7920, lng: -17.3030 },
-    
-    // Cités et Lotissements
-    'cité keur damel': { lat: 14.7860, lng: -17.3200 },
-    'cite keur damel': { lat: 14.7860, lng: -17.3200 },
-    'cité keur mandione': { lat: 14.7880, lng: -17.3220 },
-    'cite keur mandione': { lat: 14.7880, lng: -17.3220 },
-    'cité mbaye dione': { lat: 14.7870, lng: -17.3180 },
-    'cite mbaye dione': { lat: 14.7870, lng: -17.3180 },
-    'cité serigne mbaye sy': { lat: 14.7840, lng: -17.3140 },
-    'cite serigne mbaye sy': { lat: 14.7840, lng: -17.3140 },
-    
-    // Zones Connexes
-    'diamaguène sicap mbao': { lat: 14.7650, lng: -17.3100 },
-    'diamaguene sicap mbao': { lat: 14.7650, lng: -17.3100 },
     'mbao': { lat: 14.7300, lng: -17.3200 },
-    
-    // ====================================
-    // ZONES PÉRIPHÉRIQUES
-    // ====================================
-    'rufisque': { lat: 14.7167, lng: -17.2667 },
-    'bargny': { lat: 14.7000, lng: -17.2167 },
-    'sangalkam': { lat: 14.8000, lng: -17.2500 }
+    'rufisque': { lat: 14.7167, lng: -17.2667 }
   };
   
   const addressLower = address.toLowerCase();
   
-  // Recherche exacte
   for (const [quartier, coordonnees] of Object.entries(coords)) {
     if (addressLower.includes(quartier)) {
-      console.log(` ✅  Quartier: "${quartier}"  →  [${coordonnees.lat}, ${coordonnees.lng}]`);
+      console.log(`✅ Quartier: "${quartier}" → [${coordonnees.lat}, ${coordonnees.lng}]`);
       return coordonnees;
     }
   }
   
-  // Fallback
-  console.warn(` ⚠️  Adresse non reconnue: "${address}" - Utilisation Plateau par défaut`);
+  console.warn(`⚠️ Adresse non reconnue: "${address}" - Utilisation Plateau par défaut`);
   return { lat: 14.6928, lng: -17.4467 };
 }
-// Export pour utilisation dans d'autres modules
-module.exports = { getDefaultCoordsForAddress };

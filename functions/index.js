@@ -1,9 +1,11 @@
-const functions = require('firebase-functions');
 const admin = require('firebase-admin');
+const { onDocumentCreated, onDocumentUpdated } = require('firebase-functions/v2/firestore');
+const { onCall } = require('firebase-functions/v2/https');
+const { onSchedule } = require('firebase-functions/v2/scheduler');
 
 // ✅ INITIALISATION
 admin.initializeApp();
-const db = admin.firestore();  // ⭐ AJOUT CRITIQUE
+const db = admin.firestore();
 
 // ==========================================
 // CONFIGURATION SYSTÈME
@@ -17,9 +19,6 @@ const TRACKING_CONFIG = {
     minSoldeRequis: 1000
 };
 
-// ==========================================
-// CONFIGURATION PAIEMENTS
-// ==========================================
 const PAYMENT_CONFIG = {
     driverRate: 0.70,
     platformRate: 0.30,
@@ -61,11 +60,10 @@ function parseMoney(value) {
 // SECTION 1: ASSIGNATION AUTOMATIQUE
 // ==========================================
 
-exports.assignerChauffeurAutomatique = functions.firestore
-  .document('reservations/{reservationId}')
-  .onCreate(async (snap, context) => {
+exports.assignerChauffeurAutomatique = onDocumentCreated('reservations/{reservationId}', async (event) => {
+    const snap = event.data;
     const reservation = snap.data();
-    const reservationId = context.params.reservationId;
+    const reservationId = event.params.reservationId;
     
     console.log(`🚕 [${new Date().toISOString()}] Nouvelle réservation: ${reservationId}`);
     
@@ -285,24 +283,24 @@ exports.assignerChauffeurAutomatique = functions.firestore
       
       return null;
     }
-  });
+});
 
-exports.assignerChauffeurManuel = functions.https.onCall(async (data, context) => {
-  if (!context.auth && !data.adminToken) {
-    throw new functions.https.HttpsError('unauthenticated', 'Non authentifié');
+exports.assignerChauffeurManuel = onCall(async (request) => {
+  const { reservationId, chauffeurId, adminToken } = request.data;
+  
+  if (!request.auth && !adminToken) {
+    throw new Error('Non authentifié');
   }
   
-  const { reservationId, chauffeurId } = data;
-  
   if (!reservationId || !chauffeurId) {
-    throw new functions.https.HttpsError('invalid-argument', 'Paramètres manquants');
+    throw new Error('Paramètres manquants');
   }
   
   try {
     const reservationDoc = await db.collection('reservations').doc(reservationId).get();
     
     if (!reservationDoc.exists) {
-      throw new functions.https.HttpsError('not-found', 'Réservation non trouvée');
+      throw new Error('Réservation non trouvée');
     }
     
     const reservation = reservationDoc.data();
@@ -324,16 +322,13 @@ exports.assignerChauffeurManuel = functions.https.onCall(async (data, context) =
     const chauffeurDoc = await db.collection('drivers').doc(chauffeurId).get();
     
     if (!chauffeurDoc.exists) {
-      throw new functions.https.HttpsError('not-found', 'Chauffeur non trouvé');
+      throw new Error('Chauffeur non trouvé');
     }
     
     const chauffeur = chauffeurDoc.data();
     
     if (chauffeur.reservationEnCours || chauffeur.currentBookingId) {
-      throw new functions.https.HttpsError(
-        'failed-precondition', 
-        `Chauffeur déjà en course`
-      );
+      throw new Error('Chauffeur déjà en course');
     }
 
     let rawSolde = undefined;
@@ -349,10 +344,7 @@ exports.assignerChauffeurManuel = functions.https.onCall(async (data, context) =
 
     if (soldeActuel < TRACKING_CONFIG.minSoldeRequis) {
         console.warn(`Tentative assignation manuelle rejetée. Solde: ${soldeActuel}`);
-        throw new functions.https.HttpsError(
-            'failed-precondition', 
-            `Solde insuffisant (${soldeActuel} FCFA). Le chauffeur doit avoir au moins ${TRACKING_CONFIG.minSoldeRequis} FCFA.`
-        );
+        throw new Error(`Solde insuffisant (${soldeActuel} FCFA). Le chauffeur doit avoir au moins ${TRACKING_CONFIG.minSoldeRequis} FCFA.`);
     }
 
     let distance = 5;
@@ -396,7 +388,7 @@ exports.assignerChauffeurManuel = functions.https.onCall(async (data, context) =
         distanceChauffeur: Math.round(distance * 1000),
         tempsArriveeChauffeur: Math.round(distance * 3),
         modeAssignation: 'manuel',
-        assignePar: context.auth ? context.auth.email : 'admin'
+        assignePar: request.auth ? request.auth.email : 'admin'
       });
       
       transaction.update(chauffeurRef, {
@@ -435,17 +427,16 @@ exports.assignerChauffeurManuel = functions.https.onCall(async (data, context) =
     
   } catch (error) {
     console.error('❌ Erreur:', error);
-    throw new functions.https.HttpsError('internal', error.message);
+    throw new Error(error.message);
   }
 });
 
-exports.verifierAssignationTimeout = functions.pubsub
-  .schedule('every 5 minutes')
-  .onRun(async (context) => {
+exports.verifierAssignationTimeout = onSchedule('every 5 minutes', async (event) => {
     console.log('🔍 Vérification timeouts...');
     const params = await getSystemParams();
     const maintenant = Date.now();
     const timeout = params.delaiReassignation * 60 * 1000;
+    
     try {
       const snapshot = await db.collection('reservations')
         .where('statut', '==', 'assignee')
@@ -476,7 +467,7 @@ exports.verifierAssignationTimeout = functions.pubsub
       console.error('❌ Erreur timeout:', error);
     }
     return null;
-  });
+});
 
 async function reassignerChauffeur(reservationId, reservation) {
   try {
@@ -511,12 +502,12 @@ async function reassignerChauffeur(reservationId, reservation) {
   }
 }
 
-exports.terminerCourse = functions.https.onCall(async (data, context) => {
-  if (!context.auth && !data.adminToken) {
-    throw new functions.https.HttpsError('unauthenticated', 'Non authentifié');
-  }
+exports.terminerCourse = onCall(async (request) => {
+  const { reservationId, chauffeurId, adminToken } = request.data;
   
-  const { reservationId, chauffeurId } = data;
+  if (!request.auth && !adminToken) {
+    throw new Error('Non authentifié');
+  }
   
   try {
     await db.collection('reservations').doc(reservationId).update({
@@ -532,16 +523,16 @@ exports.terminerCourse = functions.https.onCall(async (data, context) => {
     });
     return { success: true, message: 'Course terminée' };
   } catch (error) {
-    throw new functions.https.HttpsError('internal', error.message);
+    throw new Error(error.message);
   }
 });
 
-exports.annulerReservation = functions.https.onCall(async (data, context) => {
-  if (!context.auth && !data.adminToken) {
-    throw new functions.https.HttpsError('unauthenticated', 'Non authentifié');
-  }
+exports.annulerReservation = onCall(async (request) => {
+  const { reservationId, raison, adminToken } = request.data;
   
-  const { reservationId, raison } = data;
+  if (!request.auth && !adminToken) {
+    throw new Error('Non authentifié');
+  }
   
   try {
     const reservationDoc = await db.collection('reservations').doc(reservationId).get();
@@ -558,17 +549,15 @@ exports.annulerReservation = functions.https.onCall(async (data, context) => {
       statut: 'annulee',
       raisonAnnulation: raison || 'Non spécifiée',
       dateAnnulation: admin.firestore.FieldValue.serverTimestamp(),
-      annuleePar: context.auth ? context.auth.email : 'admin'
+      annuleePar: request.auth ? request.auth.email : 'admin'
     });
     return { success: true, message: 'Réservation annulée' };
   } catch (error) {
-    throw new functions.https.HttpsError('internal', error.message);
+    throw new Error(error.message);
   }
 });
 
-exports.verifierCoherenceChauffeurs = functions.pubsub
-  .schedule('every 1 hours')
-  .onRun(async (context) => {
+exports.verifierCoherenceChauffeurs = onSchedule('every 1 hours', async (event) => {
     console.log('🔍 Vérification cohérence...');
     
     try {
@@ -611,18 +600,16 @@ exports.verifierCoherenceChauffeurs = functions.pubsub
       console.error('❌ Erreur cohérence:', error);
     }
     return null;
-  });
+});
 
 // ==========================================
 // SECTION 2: CRÉDITS AUTOMATIQUES
 // ==========================================
 
-exports.crediterChauffeurAutomatique = functions.firestore
-    .document('reservations/{reservationId}')
-    .onUpdate(async (change, context) => {
-        const before = change.before.data();
-        const after = change.after.data();
-        const reservationId = context.params.reservationId;
+exports.crediterChauffeurAutomatique = onDocumentUpdated('reservations/{reservationId}', async (event) => {
+        const before = event.data.before.data();
+        const after = event.data.after.data();
+        const reservationId = event.params.reservationId;
         
         if (before.paiementValide === true || after.paiementValide !== true) {
             return null;
@@ -773,11 +760,13 @@ exports.crediterChauffeurAutomatique = functions.firestore
             
             return null;
         }
-    });
+});
 
-exports.recupererCreditsManques = functions.https.onCall(async (data, context) => {
-    if (!context.auth && !data.adminToken) {
-        throw new functions.https.HttpsError('unauthenticated', 'Non authentifié');
+exports.recupererCreditsManques = onCall(async (request) => {
+    const { adminToken } = request.data;
+    
+    if (!request.auth && !adminToken) {
+        throw new Error('Non authentifié');
     }
     
     console.log('🔧 [RÉCUP] Recherche des crédits manqués...');
@@ -867,7 +856,7 @@ exports.recupererCreditsManques = functions.https.onCall(async (data, context) =
         
     } catch (error) {
         console.error('❌ [RÉCUP] Erreur:', error);
-        throw new functions.https.HttpsError('internal', error.message);
+        throw new Error(error.message);
     }
 });
 
@@ -895,10 +884,6 @@ function getDefaultCoordsForAddress(address) {
   const coords = {
     'plateau': { lat: 14.6928, lng: -17.4467 },
     'place de l\'indépendance': { lat: 14.6928, lng: -17.4467 },
-    'rebeuss': { lat: 14.6850, lng: -17.4450 },
-    'port': { lat: 14.6800, lng: -17.4150 },
-    'petersen': { lat: 14.6890, lng: -17.4380 },
-    'sandaga': { lat: 14.6750, lng: -17.4300 },
     'medina': { lat: 14.6738, lng: -17.4387 },
     'fass': { lat: 14.6820, lng: -17.4500 },
     'point e': { lat: 14.6953, lng: -17.4614 },
@@ -912,18 +897,10 @@ function getDefaultCoordsForAddress(address) {
     'yoff': { lat: 14.7500, lng: -17.4833 },
     'ouakam': { lat: 14.7200, lng: -17.4900 },
     'liberté': { lat: 14.7186, lng: -17.4697 },
-    'liberte': { lat: 14.7186, lng: -17.4697 },
     'hann': { lat: 14.7150, lng: -17.4380 },
     'pikine': { lat: 14.7549, lng: -17.3940 },
     'guédiawaye': { lat: 14.7690, lng: -17.3990 },
-    'guediawaye': { lat: 14.7690, lng: -17.3990 },
     'keur massar': { lat: 14.7833, lng: -17.3167 },
-    'boune': { lat: 14.7950, lng: -17.3250 },
-    'tivaouane peulh': { lat: 14.8050, lng: -17.3300 },
-    'jaxaay': { lat: 14.7800, lng: -17.2950 },
-    'yeumbeul': { lat: 14.7720, lng: -17.3420 },
-    'malika': { lat: 14.7800, lng: -17.3600 },
-    'mbao': { lat: 14.7300, lng: -17.3200 },
     'rufisque': { lat: 14.7167, lng: -17.2667 }
   };
   

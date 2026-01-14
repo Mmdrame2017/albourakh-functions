@@ -431,43 +431,46 @@ exports.assignerChauffeurManuel = onCall(async (request) => {
   }
 });
 
+// TEMPORAIREMENT DÉSACTIVÉ POUR PREMIER DÉPLOIEMENT
+/*
 exports.verifierAssignationTimeout = onSchedule('every 5 minutes', async (event) => {
-    console.log('🔍 Vérification timeouts...');
-    const params = await getSystemParams();
-    const maintenant = Date.now();
-    const timeout = params.delaiReassignation * 60 * 1000;
+    // console.log('🔍 Vérification timeouts...');
+    // const params = await getSystemParams();
+   // const maintenant = Date.now();
+   // const timeout = params.delaiReassignation * 60 * 1000;
     
-    try {
-      const snapshot = await db.collection('reservations')
-        .where('statut', '==', 'assignee')
-        .get();
+   // try {
+     // const snapshot = await db.collection('reservations')
+       // .where('statut', '==', 'assignee')
+       // .get();
       
-      const promesses = [];
+     // const promesses = [];
       
-      snapshot.forEach(doc => {
-        const reservation = doc.data();
+     // snapshot.forEach(doc => {
+       // const reservation = doc.data();
         
-        if (reservation.dateAssignation) {
-          const tempsEcoule = maintenant - reservation.dateAssignation.toMillis();
+       // if (reservation.dateAssignation) {
+         // const tempsEcoule = maintenant - reservation.dateAssignation.toMillis();
           
-          if (tempsEcoule > timeout) {
-            console.log(`⚠️ Timeout: ${doc.id}`);
-            promesses.push(reassignerChauffeur(doc.id, reservation));
+         // if (tempsEcoule > timeout) {
+           // console.log(`⚠️ Timeout: ${doc.id}`);
+           // promesses.push(reassignerChauffeur(doc.id, reservation));
           }
         }
       });
       
-      await Promise.all(promesses);
+     // await Promise.all(promesses);
       
-      if (promesses.length > 0) {
-        console.log(`✅ ${promesses.length} réassignations`);
+     // if (promesses.length > 0) {
+       // console.log(`✅ ${promesses.length} réassignations`);
       }
       
-    } catch (error) {
-      console.error('❌ Erreur timeout:', error);
+  // } catch (error) {
+    //  console.error('❌ Erreur timeout:', error);
     }
-    return null;
+   // return null;
 });
+*/
 
 async function reassignerChauffeur(reservationId, reservation) {
   try {
@@ -557,50 +560,53 @@ exports.annulerReservation = onCall(async (request) => {
   }
 });
 
+// TEMPORAIREMENT DÉSACTIVÉ POUR PREMIER DÉPLOIEMENT  
+/*
 exports.verifierCoherenceChauffeurs = onSchedule('every 1 hours', async (event) => {
-    console.log('🔍 Vérification cohérence...');
+   // console.log('🔍 Vérification cohérence...');
     
-    try {
-      const snapshot = await db.collection('drivers').get();
-      const corrections = [];
+   // try {
+     // const snapshot = await db.collection('drivers').get();
+     // const corrections = [];
       
-      snapshot.forEach(doc => {
-        const data = doc.data();
+     // snapshot.forEach(doc => {
+       // const data = doc.data();
         
-        if (data.currentBookingId !== data.reservationEnCours) {
-          let valeurCorrecte = null;
+       // if (data.currentBookingId !== data.reservationEnCours) {
+         // let valeurCorrecte = null;
           
-          if (data.currentBookingId && !data.reservationEnCours) {
-            valeurCorrecte = data.currentBookingId;
-          } else if (data.reservationEnCours && !data.currentBookingId) {
-            valeurCorrecte = data.reservationEnCours;
-          } else if (data.currentBookingId && data.reservationEnCours) {
-            valeurCorrecte = data.currentBookingId;
-          } else {
-            return;
+         // if (data.currentBookingId && !data.reservationEnCours) {
+           // valeurCorrecte = data.currentBookingId;
+         // } else if (data.reservationEnCours && !data.currentBookingId) {
+           // valeurCorrecte = data.reservationEnCours;
+         // } else if (data.currentBookingId && data.reservationEnCours) {
+           // valeurCorrecte = data.currentBookingId;
+         // } else {
+           // return;
           }
           
-          console.log(`🔧 Correction: ${doc.id}`);
+         // console.log(`🔧 Correction: ${doc.id}`);
           
-          corrections.push(
-            db.collection('drivers').doc(doc.id).update({
-              currentBookingId: valeurCorrecte,
-              reservationEnCours: valeurCorrecte
+         // corrections.push(
+           // db.collection('drivers').doc(doc.id).update({
+             // currentBookingId: valeurCorrecte,
+             // reservationEnCours: valeurCorrecte
             })
           );
         }
       });
       
-      if (corrections.length > 0) {
-        await Promise.all(corrections);
-        console.log(`✅ ${corrections.length} corrections`);
+     // if (corrections.length > 0) {
+       // await Promise.all(corrections);
+       // console.log(`✅ ${corrections.length} corrections`);
       }
       
-    } catch (error) {
-      console.error('❌ Erreur cohérence:', error);
+   // } catch (error) {
+     // console.error('❌ Erreur cohérence:', error);
     }
-    return null;
+   // return null;
 });
+*/
 
 // ==========================================
 // SECTION 2: CRÉDITS AUTOMATIQUES

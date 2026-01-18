@@ -14,6 +14,11 @@ const TRACKING_CONFIG = {
     batchUpdateInterval: 5,         // Intervalle de batch en secondes
     minSoldeRequis: 1000            // Solde minimum strict pour recevoir une course
 };
+// ⭐ AJOUTEZ CETTE CONFIGURATION ICI ⭐
+const PAYMENT_CONFIG = {
+    driverRate: 0.7,           // 70% pour le chauffeur
+    platformRate: 0.3          // 30% pour la plateforme
+};
 
 async function getSystemParams() {
   try {

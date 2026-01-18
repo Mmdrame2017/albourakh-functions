@@ -3,6 +3,10 @@ const admin = require('firebase-admin');
 admin.initializeApp();
 const db = admin.firestore();
 
+// ⭐ AJOUTEZ CETTE LIGNE ⭐
+const { setGlobalOptions } = require('firebase-functions/v2');
+setGlobalOptions({ region: 'us-central1' });
+
 // ==========================================
 // CONFIGURATION SYSTÈME
 // ==========================================
